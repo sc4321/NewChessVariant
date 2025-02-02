@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Multi_Board Chess Variant</title>
+  <!-- chessboard.js CSS (from CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/dist/chessboard.min.css">
+  
+  <script src="/js/chess.js"></script>
+  <script src="/js/chessboard.js"></script>
+  <link rel="stylesheet" href="css/chessboard.css" />
+  <script src="js/jquery-1.10.1.min.js"></script>
+  
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #boardsContainer {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .board-wrapper {
+      margin: 10px;
+      text-align: center;
+      padding: 5px;
+    }
+    .active {
+      border: 2px solid red;
+      padding: 3px;
+    }
+    #status {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Multi_Board Chess Variant</h1>
+  <div id="boardsContainer">
+    <!-- We create three board “slots” – you can later parameterize the odd number -->
+    <div class="board-wrapper" id="boardWrapper0">
+      <div id="board0" style="width: 400px"></div>
+      <div>Board 1 (Young Pieces)</div>
+    </div>
+    <div class="board-wrapper" id="boardWrapper1">
+      <div id="board1" style="width: 400px"></div>
+      <div>Board 2 (+10 Years)</div>
+    </div>
+    <div class="board-wrapper" id="boardWrapper2">
+      <div id="board2" style="width: 400px"></div>
+      <div>Board 3 (+20 Years)</div>
+    </div>
+  </div>
+  <div id="status">Active Board: Board 1, Turn: White</div>
+  
+  <!-- chess.js and chessboard.js (from CDN) 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.12.0/chess.min.js"></script>
+  //<script src="https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/dist/chessboard.min.js"></script>
+  -->
+  <script src="/js/chess.js"></script>
+  <script src="/js/chessboard.js"></script>
+  <link rel="stylesheet" href="css/chessboard.css" />
+  <script src="js/jquery-1.10.1.min.js"></script>
+
+  
+  <script>
+    /*********************
+     * GLOBAL VARIABLES
+     *********************/
+    const NUM_BOARDS = 3; // can be made configurable (odd number only)
+    let boards = [];       // chessboard.js board instances
+    let games = [];        // chess.js game objects (one per board)
+    let boardMappings = []; // our custom mapping per board: { square: { id, type, color } }
+    let activeBoardIndex = 0; // index (0–2) for the board that is “active” for a move
+
+    /***********************************************
+     * INITIAL BOARD MAPPING WITH UNIQUE PIECE IDs 
+     * (This “decorates” the starting position.)
+     ***********************************************/
+    function initMapping() {
+      // We assign unique ids to each piece.
+      return {
+        // Black pieces (top of board)
+        "a8": { id: "bR1", type: "r", color: "b" },
+        "b8": { id: "bN1", type: "n", color: "b" },
+        "c8": { id: "bB1", type: "b", color: "b" },
+        "d8": { id: "bQ",  type: "q", color: "b" },
+        "e8": { id: "bK",  type: "k", color: "b" },
+        "f8": { id: "bB2", type: "b", color: "b" },
+        "g8": { id: "bN2", type: "n", color: "b" },
+        "h8": { id: "bR2", type: "r", color: "b" },
+        "a7": { id: "bP1", type: "p", color: "b" },
+        "b7": { id: "bP2", type: "p", color: "b" },
+        "c7": { id: "bP3", type: "p", color: "b" },
+        "d7": { id: "bP4", type: "p", color: "b" },
+        "e7": { id: "bP5", type: "p", color: "b" },
+        "f7": { id: "bP6", type: "p", color: "b" },
+        "g7": { id: "bP7", type: "p", color: "b" },
+        "h7": { id: "bP8", type: "p", color: "b" },
+        // White pieces (bottom of board)
+        "a2": { id: "wP1", type: "p", color: "w" },
+        "b2": { id: "wP2", type: "p", color: "w" },
+        "c2": { id: "wP3", type: "p", color: "w" },
+        "d2": { id: "wP4", type: "p", color: "w" },
+        "e2": { id: "wP5", type: "p", color: "w" },
+        "f2": { id: "wP6", type: "p", color: "w" },
+        "g2": { id: "wP7", type: "p", color: "w" },
+        "h2": { id: "wP8", type: "p", color: "w" },
+        "a1": { id: "wR1", type: "r", color: "w" },
+        "b1": { id: "wN1", type: "n", color: "w" },
+        "c1": { id: "wB1", type: "b", color: "w" },
+        "d1": { id: "wQ",  type: "q", color: "w" },
+        "e1": { id: "wK",  type: "k", color: "w" },
+        "f1": { id: "wB2", type: "b", color: "w" },
+        "g1": { id: "wN2", type: "n", color: "w" },
+        "h1": { id: "wR2", type: "r", color: "w" }
+      };
+    }
+
+    // Simple deep copy function (for our mapping)
+    function deepCopy(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+
+    /***************************************************
+     * Convert our board mapping to a position object 
+     * that chessboard.js understands.
+     ***************************************************/
+    function mappingToPosition(mapping) {
+      const position = {};
+      for (const square in mapping) {
+        if (mapping.hasOwnProperty(square)) {
+          const piece = mapping[square];
+          // For display we use standard two‐letter codes.
+          // (Pawn: P, Knight: N, Bishop: B, Rook: R, Queen: Q, King: K)
+          let pieceLetter = "";
+          if (piece.type === "p") pieceLetter = "P";
+          else if (piece.type === "n") pieceLetter = "N";
+          else if (piece.type === "b") pieceLetter = "B";
+          else if (piece.type === "r") pieceLetter = "R";
+          else if (piece.type === "q") pieceLetter = "Q";
+          else if (piece.type === "k") pieceLetter = "K";
+          position[square] = piece.color + pieceLetter;
+        }
+      }
+      return position;
+    }
+
+    /************************************
+     * Update the status display and 
+     * highlight the active board.
+     ************************************/
+    function updateStatus() {
+      const turn = games[activeBoardIndex].turn() === "w" ? "White" : "Black";
+      document.getElementById("status").innerText =
+        "Active Board: Board " + (activeBoardIndex + 1) +
+        " (" + (activeBoardIndex === 0 ? "Young" : (activeBoardIndex === 1 ? "+10 Years" : "+20 Years")) +
+        "), Turn: " + turn;
+      
+      // Add a red border to the active board’s wrapper.
+      for (let i = 0; i < NUM_BOARDS; i++) {
+        const wrapper = document.getElementById("boardWrapper" + i);
+        if (i === activeBoardIndex) {
+          wrapper.classList.add("active");
+        } else {
+          wrapper.classList.remove("active");
+        }
+      }
+    }
+
+    /************************************************************
+     * Special Rule: If a piece (except a king) is captured on a
+     * younger board then remove (“kill”) that same piece (by id)
+     * from every older board.
+     ************************************************************/
+    function propagateCapture(capturedId, fromBoardIndex) {
+      for (let i = fromBoardIndex + 1; i < NUM_BOARDS; i++) {
+        // Look for the captured piece on board i (by unique id)
+        let squareToRemove = null;
+        for (const square in boardMappings[i]) {
+          if (boardMappings[i].hasOwnProperty(square)) {
+            if (boardMappings[i][square].id === capturedId) {
+              squareToRemove = square;
+              break;
+            }
+          }
+        }
+        if (squareToRemove) {
+          // Remove the piece from our mapping…
+          delete boardMappings[i][squareToRemove];
+          // …and from the chess.js game state (if supported)
+          games[i].remove(squareToRemove);
+          // Update the board UI
+          boards[i].position(mappingToPosition(boardMappings[i]));
+          console.log("Propagated capture of " + capturedId + " on Board " + (i+1));
+        }
+      }
+    }
+
+    /****************************************************
+     * Create a chessboard.js configuration for a given 
+     * board (by index). (Notice how onDragStart only 
+     * the active board is allowed to move pieces.)
+     ****************************************************/
+    function createBoardConfig(boardIndex) {
+      return {
+        draggable: true,
+        position: mappingToPosition(boardMappings[boardIndex]),
+        onDragStart: function(source, piece, position, orientation) {
+          // Only allow moves on the active board.
+          if (boardIndex !== activeBoardIndex) return false;
+          // Also only allow moving a piece if its color matches
+          // the current turn on that board.
+          const turn = games[boardIndex].turn();
+          if (piece.charAt(0) !== turn) return false;
+        },
+        onDrop: function(source, target) {
+          // (Again, only active board gets moves.)
+          if (boardIndex !== activeBoardIndex) return "snapback";
+          
+          // Build a move object for chess.js; auto-promote to queen.
+          const moveObj = {
+            from: source,
+            to: target,
+            promotion: "q"
+          };
+          const move = games[boardIndex].move(moveObj);
+          if (move === null) return "snapback"; // illegal move
+
+          // Update our custom mapping:
+          const movingPiece = boardMappings[boardIndex][source];
+          // (If something already occupied the target, that piece is captured.)
+          const capturedPiece = boardMappings[boardIndex][target] || null;
+          // Move the piece in our mapping.
+          boardMappings[boardIndex][target] = movingPiece;
+          delete boardMappings[boardIndex][source];
+          // If the move included a promotion, update the moving piece’s type.
+          if (move.promotion) {
+            movingPiece.type = move.promotion;
+          }
+          // Special rule: if a non‐king was captured, remove it from older boards.
+          if (capturedPiece && capturedPiece.type !== "k") {
+            propagateCapture(capturedPiece.id, boardIndex);
+          }
+          // Update the board’s UI.
+          boards[boardIndex].position(mappingToPosition(boardMappings[boardIndex]));
+          
+          // Now that a move was made on this board, advance the active board.
+          activeBoardIndex = (activeBoardIndex + 1) % NUM_BOARDS;
+          updateStatus();
+        },
+        onSnapEnd: function() {
+          // Ensure the board’s UI is in sync with our mapping.
+          boards[boardIndex].position(mappingToPosition(boardMappings[boardIndex]));
+        }
+      };
+    }
+
+    /**************************************
+     * Initialize the three boards/games.
+     **************************************/
+    function init() {
+      for (let i = 0; i < NUM_BOARDS; i++) {
+        // Each board gets its own fresh mapping (deep-copy the initial one)
+        boardMappings[i] = deepCopy(initMapping());
+        // Create a new chess.js game (with standard starting FEN).
+        games[i] = new Chess();
+      }
+      // Create the board UIs.
+      for (let i = 0; i < NUM_BOARDS; i++) {
+        const config = createBoardConfig(i);
+        boards[i] = Chessboard("board" + i, config);
+      }
+      updateStatus();
+    }
+    
+    // Start the game
+    init();
+  </script>
+</body>
+</html>
